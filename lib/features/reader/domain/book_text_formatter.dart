@@ -1,32 +1,83 @@
+import 'package:translate_reader/features/reader/domain/models/book_content.dart';
 
 /// Класс для форматирования текста книги.
 class BookTextFormatter {
-  String format(String rawText) {
-    if (rawText.isEmpty) {
-      return '';
+  FormattedBookContent format({
+    required List<BookBlock> blocks,
+    List<BookTocEntry> tocEntries = const <BookTocEntry>[],
+  }) {
+    if (blocks.isEmpty) {
+      return const FormattedBookContent(
+        text: '',
+        blocks: <FormattedBookBlock>[],
+        tocEntries: <FormattedBookTocEntry>[],
+      );
     }
 
-    String text = rawText;
+    const String indent = '\u2003\u2003';
+    final StringBuffer buffer = StringBuffer();
+    final List<FormattedBookBlock> formattedBlocks = <FormattedBookBlock>[];
+    final Map<int, int> blockOffsets = <int, int>{};
 
-    // 1. Нормализация переводов строк.
-    // Заменяем Windows/Mac окончания строк на \n.
-    text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    for (int index = 0; index < blocks.length; index += 1) {
+      final BookBlock block = blocks[index];
+      final String normalizedText = _normalizeBlockText(block.text);
+      if (normalizedText.isEmpty) {
+        continue;
+      }
 
-    // 2. Удаление номеров страниц.
-    text = text.replaceAll(RegExp(r'\n\s*\[?\d+\]?\s*\n'), '\n');
+      if (buffer.isNotEmpty) {
+        buffer.write('\n');
+      }
 
-    // 3. Удаление лишних пробелов между абзацами.
-    text = text.replaceAll(RegExp(r'\n{2,}'), '\n');
+      final int start = buffer.length;
+      final String formattedText = block.isHeading
+          ? normalizedText
+          : '$indent$normalizedText';
+      buffer.write(formattedText);
+      final int end = buffer.length;
 
-    // 4. Добавление красной строки (отступа) для каждого абзаца.
-    const String indent = '\u2003\u2003'; // Три широких пробела для заметного абзацного отступа
-    text = text.replaceAll('\n', '\n$indent');
-
-    // Также добавляем отступ для самого первого абзаца, если текст не пустой.
-    if (!text.startsWith(indent)) {
-      text = '$indent$text';
+      formattedBlocks.add(
+        FormattedBookBlock(
+          text: formattedText,
+          start: start,
+          end: end,
+          type: block.type,
+          level: block.level,
+        ),
+      );
+      blockOffsets[index] = start;
     }
 
-    return text;
+    final List<FormattedBookTocEntry> formattedTocEntries = tocEntries
+        .map((BookTocEntry entry) {
+          final int? textOffset = blockOffsets[entry.targetBlockIndex];
+          if (textOffset == null) {
+            return null;
+          }
+
+          return FormattedBookTocEntry(
+            title: _normalizeBlockText(entry.title),
+            level: entry.level,
+            textOffset: textOffset,
+          );
+        })
+        .whereType<FormattedBookTocEntry>()
+        .toList(growable: false);
+
+    return FormattedBookContent(
+      text: buffer.toString(),
+      blocks: formattedBlocks,
+      tocEntries: formattedTocEntries,
+    );
+  }
+
+  String _normalizeBlockText(String rawText) {
+    return rawText
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .replaceAll(RegExp(r'\n+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 }

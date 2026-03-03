@@ -363,6 +363,18 @@ class $RecentBooksTable extends RecentBooks
     requiredDuringInsert: false,
     defaultValue: const Constant(22),
   );
+  static const VerificationMeta _fontFamilyMeta = const VerificationMeta(
+    'fontFamily',
+  );
+  @override
+  late final GeneratedColumn<String> fontFamily = GeneratedColumn<String>(
+    'font_family',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('system'),
+  );
   static const VerificationMeta _appearancePresetMeta = const VerificationMeta(
     'appearancePreset',
   );
@@ -406,6 +418,7 @@ class $RecentBooksTable extends RecentBooks
     format,
     currentPage,
     fontSize,
+    fontFamily,
     appearancePreset,
     layoutMode,
     lastOpenedAt,
@@ -461,6 +474,12 @@ class $RecentBooksTable extends RecentBooks
         fontSize.isAcceptableOrUnknown(data['font_size']!, _fontSizeMeta),
       );
     }
+    if (data.containsKey('font_family')) {
+      context.handle(
+        _fontFamilyMeta,
+        fontFamily.isAcceptableOrUnknown(data['font_family']!, _fontFamilyMeta),
+      );
+    }
     if (data.containsKey('appearance_preset')) {
       context.handle(
         _appearancePresetMeta,
@@ -514,6 +533,10 @@ class $RecentBooksTable extends RecentBooks
         DriftSqlType.double,
         data['${effectivePrefix}font_size'],
       )!,
+      fontFamily: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}font_family'],
+      )!,
       appearancePreset: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}appearance_preset'],
@@ -541,6 +564,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
   final String format;
   final int currentPage;
   final double fontSize;
+  final String fontFamily;
   final String appearancePreset;
   final String layoutMode;
   final DateTime lastOpenedAt;
@@ -550,6 +574,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
     required this.format,
     required this.currentPage,
     required this.fontSize,
+    required this.fontFamily,
     required this.appearancePreset,
     required this.layoutMode,
     required this.lastOpenedAt,
@@ -562,6 +587,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
     map['format'] = Variable<String>(format);
     map['current_page'] = Variable<int>(currentPage);
     map['font_size'] = Variable<double>(fontSize);
+    map['font_family'] = Variable<String>(fontFamily);
     map['appearance_preset'] = Variable<String>(appearancePreset);
     map['layout_mode'] = Variable<String>(layoutMode);
     map['last_opened_at'] = Variable<DateTime>(lastOpenedAt);
@@ -575,6 +601,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
       format: Value(format),
       currentPage: Value(currentPage),
       fontSize: Value(fontSize),
+      fontFamily: Value(fontFamily),
       appearancePreset: Value(appearancePreset),
       layoutMode: Value(layoutMode),
       lastOpenedAt: Value(lastOpenedAt),
@@ -592,6 +619,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
       format: serializer.fromJson<String>(json['format']),
       currentPage: serializer.fromJson<int>(json['currentPage']),
       fontSize: serializer.fromJson<double>(json['fontSize']),
+      fontFamily: serializer.fromJson<String>(json['fontFamily']),
       appearancePreset: serializer.fromJson<String>(json['appearancePreset']),
       layoutMode: serializer.fromJson<String>(json['layoutMode']),
       lastOpenedAt: serializer.fromJson<DateTime>(json['lastOpenedAt']),
@@ -606,6 +634,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
       'format': serializer.toJson<String>(format),
       'currentPage': serializer.toJson<int>(currentPage),
       'fontSize': serializer.toJson<double>(fontSize),
+      'fontFamily': serializer.toJson<String>(fontFamily),
       'appearancePreset': serializer.toJson<String>(appearancePreset),
       'layoutMode': serializer.toJson<String>(layoutMode),
       'lastOpenedAt': serializer.toJson<DateTime>(lastOpenedAt),
@@ -618,6 +647,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
     String? format,
     int? currentPage,
     double? fontSize,
+    String? fontFamily,
     String? appearancePreset,
     String? layoutMode,
     DateTime? lastOpenedAt,
@@ -627,6 +657,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
     format: format ?? this.format,
     currentPage: currentPage ?? this.currentPage,
     fontSize: fontSize ?? this.fontSize,
+    fontFamily: fontFamily ?? this.fontFamily,
     appearancePreset: appearancePreset ?? this.appearancePreset,
     layoutMode: layoutMode ?? this.layoutMode,
     lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
@@ -640,6 +671,9 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
           ? data.currentPage.value
           : this.currentPage,
       fontSize: data.fontSize.present ? data.fontSize.value : this.fontSize,
+      fontFamily: data.fontFamily.present
+          ? data.fontFamily.value
+          : this.fontFamily,
       appearancePreset: data.appearancePreset.present
           ? data.appearancePreset.value
           : this.appearancePreset,
@@ -660,6 +694,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
           ..write('format: $format, ')
           ..write('currentPage: $currentPage, ')
           ..write('fontSize: $fontSize, ')
+          ..write('fontFamily: $fontFamily, ')
           ..write('appearancePreset: $appearancePreset, ')
           ..write('layoutMode: $layoutMode, ')
           ..write('lastOpenedAt: $lastOpenedAt')
@@ -674,6 +709,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
     format,
     currentPage,
     fontSize,
+    fontFamily,
     appearancePreset,
     layoutMode,
     lastOpenedAt,
@@ -687,6 +723,7 @@ class RecentBook extends DataClass implements Insertable<RecentBook> {
           other.format == this.format &&
           other.currentPage == this.currentPage &&
           other.fontSize == this.fontSize &&
+          other.fontFamily == this.fontFamily &&
           other.appearancePreset == this.appearancePreset &&
           other.layoutMode == this.layoutMode &&
           other.lastOpenedAt == this.lastOpenedAt);
@@ -698,6 +735,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
   final Value<String> format;
   final Value<int> currentPage;
   final Value<double> fontSize;
+  final Value<String> fontFamily;
   final Value<String> appearancePreset;
   final Value<String> layoutMode;
   final Value<DateTime> lastOpenedAt;
@@ -708,6 +746,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
     this.format = const Value.absent(),
     this.currentPage = const Value.absent(),
     this.fontSize = const Value.absent(),
+    this.fontFamily = const Value.absent(),
     this.appearancePreset = const Value.absent(),
     this.layoutMode = const Value.absent(),
     this.lastOpenedAt = const Value.absent(),
@@ -719,6 +758,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
     required String format,
     this.currentPage = const Value.absent(),
     this.fontSize = const Value.absent(),
+    this.fontFamily = const Value.absent(),
     this.appearancePreset = const Value.absent(),
     this.layoutMode = const Value.absent(),
     this.lastOpenedAt = const Value.absent(),
@@ -732,6 +772,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
     Expression<String>? format,
     Expression<int>? currentPage,
     Expression<double>? fontSize,
+    Expression<String>? fontFamily,
     Expression<String>? appearancePreset,
     Expression<String>? layoutMode,
     Expression<DateTime>? lastOpenedAt,
@@ -743,6 +784,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
       if (format != null) 'format': format,
       if (currentPage != null) 'current_page': currentPage,
       if (fontSize != null) 'font_size': fontSize,
+      if (fontFamily != null) 'font_family': fontFamily,
       if (appearancePreset != null) 'appearance_preset': appearancePreset,
       if (layoutMode != null) 'layout_mode': layoutMode,
       if (lastOpenedAt != null) 'last_opened_at': lastOpenedAt,
@@ -756,6 +798,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
     Value<String>? format,
     Value<int>? currentPage,
     Value<double>? fontSize,
+    Value<String>? fontFamily,
     Value<String>? appearancePreset,
     Value<String>? layoutMode,
     Value<DateTime>? lastOpenedAt,
@@ -767,6 +810,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
       format: format ?? this.format,
       currentPage: currentPage ?? this.currentPage,
       fontSize: fontSize ?? this.fontSize,
+      fontFamily: fontFamily ?? this.fontFamily,
       appearancePreset: appearancePreset ?? this.appearancePreset,
       layoutMode: layoutMode ?? this.layoutMode,
       lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
@@ -792,6 +836,9 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
     if (fontSize.present) {
       map['font_size'] = Variable<double>(fontSize.value);
     }
+    if (fontFamily.present) {
+      map['font_family'] = Variable<String>(fontFamily.value);
+    }
     if (appearancePreset.present) {
       map['appearance_preset'] = Variable<String>(appearancePreset.value);
     }
@@ -815,6 +862,7 @@ class RecentBooksCompanion extends UpdateCompanion<RecentBook> {
           ..write('format: $format, ')
           ..write('currentPage: $currentPage, ')
           ..write('fontSize: $fontSize, ')
+          ..write('fontFamily: $fontFamily, ')
           ..write('appearancePreset: $appearancePreset, ')
           ..write('layoutMode: $layoutMode, ')
           ..write('lastOpenedAt: $lastOpenedAt, ')
@@ -1033,6 +1081,7 @@ typedef $$RecentBooksTableCreateCompanionBuilder =
       required String format,
       Value<int> currentPage,
       Value<double> fontSize,
+      Value<String> fontFamily,
       Value<String> appearancePreset,
       Value<String> layoutMode,
       Value<DateTime> lastOpenedAt,
@@ -1045,6 +1094,7 @@ typedef $$RecentBooksTableUpdateCompanionBuilder =
       Value<String> format,
       Value<int> currentPage,
       Value<double> fontSize,
+      Value<String> fontFamily,
       Value<String> appearancePreset,
       Value<String> layoutMode,
       Value<DateTime> lastOpenedAt,
@@ -1082,6 +1132,11 @@ class $$RecentBooksTableFilterComposer
 
   ColumnFilters<double> get fontSize => $composableBuilder(
     column: $table.fontSize,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get fontFamily => $composableBuilder(
+    column: $table.fontFamily,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1135,6 +1190,11 @@ class $$RecentBooksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get fontFamily => $composableBuilder(
+    column: $table.fontFamily,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get appearancePreset => $composableBuilder(
     column: $table.appearancePreset,
     builder: (column) => ColumnOrderings(column),
@@ -1176,6 +1236,11 @@ class $$RecentBooksTableAnnotationComposer
 
   GeneratedColumn<double> get fontSize =>
       $composableBuilder(column: $table.fontSize, builder: (column) => column);
+
+  GeneratedColumn<String> get fontFamily => $composableBuilder(
+    column: $table.fontFamily,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get appearancePreset => $composableBuilder(
     column: $table.appearancePreset,
@@ -1229,6 +1294,7 @@ class $$RecentBooksTableTableManager
                 Value<String> format = const Value.absent(),
                 Value<int> currentPage = const Value.absent(),
                 Value<double> fontSize = const Value.absent(),
+                Value<String> fontFamily = const Value.absent(),
                 Value<String> appearancePreset = const Value.absent(),
                 Value<String> layoutMode = const Value.absent(),
                 Value<DateTime> lastOpenedAt = const Value.absent(),
@@ -1239,6 +1305,7 @@ class $$RecentBooksTableTableManager
                 format: format,
                 currentPage: currentPage,
                 fontSize: fontSize,
+                fontFamily: fontFamily,
                 appearancePreset: appearancePreset,
                 layoutMode: layoutMode,
                 lastOpenedAt: lastOpenedAt,
@@ -1251,6 +1318,7 @@ class $$RecentBooksTableTableManager
                 required String format,
                 Value<int> currentPage = const Value.absent(),
                 Value<double> fontSize = const Value.absent(),
+                Value<String> fontFamily = const Value.absent(),
                 Value<String> appearancePreset = const Value.absent(),
                 Value<String> layoutMode = const Value.absent(),
                 Value<DateTime> lastOpenedAt = const Value.absent(),
@@ -1261,6 +1329,7 @@ class $$RecentBooksTableTableManager
                 format: format,
                 currentPage: currentPage,
                 fontSize: fontSize,
+                fontFamily: fontFamily,
                 appearancePreset: appearancePreset,
                 layoutMode: layoutMode,
                 lastOpenedAt: lastOpenedAt,

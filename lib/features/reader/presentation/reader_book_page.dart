@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:translate_reader/features/reader/application/reading_session_store.dart';
 import 'package:translate_reader/features/reader/domain/book_pages_util.dart';
 import 'package:translate_reader/features/reader/domain/book_text_formatter.dart';
@@ -43,8 +44,10 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   late final PageController _pageController;
   late final ScrollController _verticalScrollController;
   late final String _bookText;
-  late final List<String> _continuousBlocks;
+  late final List<FormattedBookBlock> _formattedBlocks;
+  late final List<FormattedBookTocEntry> _tocEntries;
   late double _fontSize;
+  late ReaderFontFamily _fontFamily;
   late ReaderAppearancePreset _appearancePreset;
   late ReaderLayoutMode _layoutMode;
 
@@ -70,18 +73,24 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
 
     final ReadingSession? session = widget.sessionStore.session;
     _fontSize = _resolveInitialFontSize(session);
+    _fontFamily = _resolveInitialFontFamily(session);
     _appearancePreset = _resolveInitialAppearancePreset(session);
     _layoutMode = _resolveInitialLayoutMode(session);
     _currentPage = session?.currentPage ?? 0;
 
-    // Форматируем текст сразу при загрузке
-    _bookText = _formatter.format(widget.book.text);
-    _continuousBlocks = _bookText.split('\n');
+    final FormattedBookContent formattedBook = _formatter.format(
+      blocks: widget.book.blocks,
+      tocEntries: widget.book.tocEntries,
+    );
+    _bookText = formattedBook.text;
+    _formattedBlocks = formattedBook.blocks;
+    _tocEntries = formattedBook.tocEntries;
 
     _pageController = PageController(initialPage: _currentPage);
     _verticalScrollController = ScrollController();
 
     widget.sessionStore.updateFontSize(_fontSize);
+    widget.sessionStore.updateFontFamily(_fontFamily);
     widget.sessionStore.updateAppearancePreset(_appearancePreset);
     widget.sessionStore.updateLayoutMode(_layoutMode);
   }
@@ -100,6 +109,10 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     }
 
     return session.fontSize.clamp(_minFontSize, _maxFontSize).toDouble();
+  }
+
+  ReaderFontFamily _resolveInitialFontFamily(ReadingSession? session) {
+    return session?.fontFamily ?? ReaderFontFamily.system;
   }
 
   ReaderAppearancePreset _resolveInitialAppearancePreset(
@@ -128,6 +141,21 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     });
 
     widget.sessionStore.updateFontSize(_fontSize);
+  }
+
+  void _applyFontFamily(ReaderFontFamily family) {
+    if (_fontFamily == family) {
+      return;
+    }
+
+    setState(() {
+      _fontFamily = family;
+      _needsRepagination = true;
+      _isLayoutTransitioning = true;
+      _tapTranslationState = null;
+    });
+
+    widget.sessionStore.updateFontFamily(family);
   }
 
   void _applyAppearancePreset(ReaderAppearancePreset preset) {
@@ -196,6 +224,113 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       targetOffset,
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
+    );
+  }
+
+  int _pageForTextOffset(int textOffset) {
+    if (_pages.isEmpty) {
+      return 0;
+    }
+
+    final int safeOffset = textOffset.clamp(0, _bookText.length).toInt();
+    for (int index = 0; index < _pages.length; index += 1) {
+      final PageSpan page = _pages[index];
+      if (safeOffset >= page.start && safeOffset < page.end) {
+        return index;
+      }
+    }
+
+    return _pages.length - 1;
+  }
+
+  InlineSpan _buildPageContentSpan({
+    required int start,
+    required int end,
+    required TextStyle textStyle,
+    required Color headingColor,
+  }) {
+    if (_formattedBlocks.isEmpty || start >= end) {
+      return TextSpan(text: '', style: textStyle);
+    }
+
+    final List<InlineSpan> children = <InlineSpan>[];
+    int cursor = start;
+
+    for (final FormattedBookBlock block in _formattedBlocks) {
+      if (block.end <= start) {
+        continue;
+      }
+
+      if (block.start >= end) {
+        break;
+      }
+
+      if (cursor < block.start) {
+        children.add(
+          TextSpan(
+            text: _bookText.substring(cursor, block.start),
+            style: textStyle,
+          ),
+        );
+      }
+
+      final int sliceStart = block.start < start ? start : block.start;
+      final int sliceEnd = block.end > end ? end : block.end;
+      if (sliceStart < sliceEnd) {
+        children.add(
+          TextSpan(
+            text: _bookText.substring(sliceStart, sliceEnd),
+            style: _textStyleForBlock(
+              block: block,
+              textStyle: textStyle,
+              headingColor: headingColor,
+            ),
+          ),
+        );
+      }
+      cursor = sliceEnd;
+    }
+
+    if (cursor < end) {
+      children.add(
+        TextSpan(text: _bookText.substring(cursor, end), style: textStyle),
+      );
+    }
+
+    return TextSpan(style: textStyle, children: children);
+  }
+
+  InlineSpan _buildBlockContentSpan({
+    required FormattedBookBlock block,
+    required TextStyle textStyle,
+    required Color headingColor,
+  }) {
+    return TextSpan(
+      text: block.text,
+      style: _textStyleForBlock(
+        block: block,
+        textStyle: textStyle,
+        headingColor: headingColor,
+      ),
+    );
+  }
+
+  TextStyle _textStyleForBlock({
+    required FormattedBookBlock block,
+    required TextStyle textStyle,
+    required Color headingColor,
+  }) {
+    if (!block.isHeading) {
+      return textStyle;
+    }
+
+    return _readerFontTextStyle(
+      family: _fontFamily,
+      baseStyle: textStyle.copyWith(
+        color: headingColor,
+        fontWeight: FontWeight.w700,
+        letterSpacing: block.level <= 2 ? 0.25 : 0.1,
+      ),
     );
   }
 
@@ -399,10 +534,10 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   Future<void> _onTextTap({
     required int pageIndex,
     required String pageText,
+    required InlineSpan contentSpan,
     required Offset localOffset,
     required double maxWidth,
     required double maxHeight,
-    required TextStyle textStyle,
     required TextDirection textDirection,
     required TextScaler textScaler,
   }) async {
@@ -412,8 +547,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     }
 
     final TextPainter painter = _buildTextPainter(
-      pageText: pageText,
-      textStyle: textStyle,
+      contentSpan: contentSpan,
       textDirection: textDirection,
       textScaler: textScaler,
     );
@@ -475,11 +609,13 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       );
     });
 
-    unawaited(_syncTapTranslationSavedState(
-      requestId: requestId,
-      pageIndex: pageIndex,
-      word: wordHit.word,
-    ));
+    unawaited(
+      _syncTapTranslationSavedState(
+        requestId: requestId,
+        pageIndex: pageIndex,
+        word: wordHit.word,
+      ),
+    );
 
     if (cachedTranslation != null) {
       return;
@@ -544,13 +680,12 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   }
 
   TextPainter _buildTextPainter({
-    required String pageText,
-    required TextStyle textStyle,
+    required InlineSpan contentSpan,
     required TextDirection textDirection,
     required TextScaler textScaler,
   }) {
     return TextPainter(
-      text: TextSpan(text: pageText, style: textStyle),
+      text: contentSpan,
       textDirection: textDirection,
       textScaler: textScaler,
     );
@@ -621,10 +756,10 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     required PointerUpEvent event,
     required int pageIndex,
     required String pageText,
+    required InlineSpan contentSpan,
     Offset? localOffset,
     required double maxWidth,
     required double maxHeight,
-    required TextStyle textStyle,
     required TextDirection textDirection,
     required TextScaler textScaler,
   }) async {
@@ -648,10 +783,10 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     await _onTextTap(
       pageIndex: pageIndex,
       pageText: pageText,
+      contentSpan: contentSpan,
       localOffset: localPosition,
       maxWidth: maxWidth,
       maxHeight: maxHeight,
-      textStyle: textStyle,
       textDirection: textDirection,
       textScaler: textScaler,
     );
@@ -870,6 +1005,33 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     }
   }
 
+  Future<void> _showTableOfContents() async {
+    if (_tocEntries.isEmpty) {
+      return;
+    }
+
+    final FormattedBookTocEntry? selectedEntry =
+        await showModalBottomSheet<FormattedBookTocEntry>(
+          context: context,
+          backgroundColor: Colors.transparent,
+          isScrollControlled: true,
+          builder: (BuildContext sheetContext) {
+            return _ReaderTocSheet(
+              entries: _tocEntries,
+              appearance: _appearanceFor(_appearancePreset),
+              currentPage: _currentPage,
+              pageForOffset: _pageForTextOffset,
+            );
+          },
+        );
+
+    if (selectedEntry == null || !mounted || _pages.isEmpty) {
+      return;
+    }
+
+    _goToPage(_pageForTextOffset(selectedEntry.textOffset));
+  }
+
   Future<void> _showAppearancePicker() async {
     final ReaderAppearancePreset? selectedPreset =
         await showModalBottomSheet<ReaderAppearancePreset>(
@@ -891,6 +1053,27 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     }
 
     _applyAppearancePreset(selectedPreset);
+  }
+
+  Future<void> _showFontPicker() async {
+    final ReaderFontFamily? selectedFamily =
+        await showModalBottomSheet<ReaderFontFamily>(
+          context: context,
+          backgroundColor: Colors.transparent,
+          isScrollControlled: true,
+          builder: (BuildContext sheetContext) {
+            return _ReaderFontSheet(
+              selectedFamily: _fontFamily,
+              appearance: _appearanceFor(_appearancePreset),
+            );
+          },
+        );
+
+    if (selectedFamily == null || !mounted) {
+      return;
+    }
+
+    _applyFontFamily(selectedFamily);
   }
 
   Future<void> _showLayoutModePicker() async {
@@ -927,6 +1110,14 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     final String pageText = _pages.isEmpty
         ? 'Текст книги пуст.'
         : _pages[index].read(_bookText);
+    final InlineSpan pageContentSpan = _pages.isEmpty
+        ? TextSpan(text: pageText, style: textStyle)
+        : _buildPageContentSpan(
+            start: _pages[index].start,
+            end: _pages[index].end,
+            textStyle: textStyle,
+            headingColor: appearance.accentColor,
+          );
 
     return Padding(
       padding: const EdgeInsets.all(_readerFramePadding),
@@ -959,9 +1150,9 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                       event: event,
                       pageIndex: index,
                       pageText: pageText,
+                      contentSpan: pageContentSpan,
                       maxWidth: textWidth,
                       maxHeight: textHeight,
-                      textStyle: textStyle,
                       textDirection: textDirection,
                       textScaler: textScaler,
                     );
@@ -976,10 +1167,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                           child: Builder(
                             builder: (BuildContext context) {
                               return RichText(
-                                text: TextSpan(
-                                  text: pageText,
-                                  style: textStyle,
-                                ),
+                                text: pageContentSpan,
                                 textDirection: textDirection,
                                 textScaler: textScaler,
                                 selectionRegistrar: SelectionContainer.maybeOf(
@@ -1011,19 +1199,28 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   Widget _buildContinuousBlock({
     required BuildContext context,
     required int index,
-    required String text,
+    required FormattedBookBlock block,
     required double textWidth,
     required TextStyle textStyle,
     required TextDirection textDirection,
     required TextScaler textScaler,
     required _ReaderAppearance appearance,
   }) {
-    if (text.trim().isEmpty) {
+    if (block.text.trim().isEmpty) {
       return SizedBox(height: (_fontSize * 0.75).clamp(12, 28));
     }
 
+    final InlineSpan contentSpan = _buildBlockContentSpan(
+      block: block,
+      textStyle: textStyle,
+      headingColor: appearance.accentColor,
+    );
+    final EdgeInsetsGeometry padding = block.isHeading
+        ? const EdgeInsets.only(top: 8, bottom: 10)
+        : EdgeInsets.zero;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: padding,
       child: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[
@@ -1036,11 +1233,11 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
               _handlePointerUp(
                 event: event,
                 pageIndex: index,
-                pageText: text,
+                pageText: block.text,
+                contentSpan: contentSpan,
                 localOffset: event.localPosition,
                 maxWidth: textWidth,
                 maxHeight: double.infinity,
-                textStyle: textStyle,
                 textDirection: textDirection,
                 textScaler: textScaler,
               );
@@ -1048,7 +1245,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
             child: Builder(
               builder: (BuildContext context) {
                 return RichText(
-                  text: TextSpan(text: text, style: textStyle),
+                  text: contentSpan,
                   textDirection: textDirection,
                   textScaler: textScaler,
                   selectionRegistrar: SelectionContainer.maybeOf(context),
@@ -1110,13 +1307,13 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                   padding: const EdgeInsets.all(_pagePadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: List<Widget>.generate(_continuousBlocks.length, (
+                    children: List<Widget>.generate(_formattedBlocks.length, (
                       int index,
                     ) {
                       return _buildContinuousBlock(
                         context: context,
                         index: index,
-                        text: _continuousBlocks[index],
+                        block: _formattedBlocks[index],
                         textWidth: textWidth,
                         textStyle: textStyle,
                         textDirection: textDirection,
@@ -1290,11 +1487,31 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         surfaceTintColor: Colors.transparent,
         title: Text(widget.book.fileName),
         actions: <Widget>[
+          if (_tocEntries.isNotEmpty)
+            IconButton(
+              onPressed: _showTableOfContents,
+              tooltip: 'Оглавление',
+              icon: Icon(
+                Icons.format_list_bulleted,
+                color: appearance.textColor,
+              ),
+            ),
           IconButton(
             onPressed: _showLayoutModePicker,
             tooltip: 'Режим чтения',
             icon: SvgPicture.asset(
               _layoutModeIcon(_layoutMode),
+              colorFilter: ColorFilter.mode(
+                appearance.textColor,
+                BlendMode.srcIn,
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: _showFontPicker,
+            tooltip: 'Шрифт',
+            icon: SvgPicture.asset(
+              'assets/icons/font.svg',
               colorFilter: ColorFilter.mode(
                 appearance.textColor,
                 BlendMode.srcIn,
@@ -1329,7 +1546,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
             icon: SvgPicture.asset(
               'assets/icons/font_up.svg',
               colorFilter: ColorFilter.mode(
-                appearance.textColor,  
+                appearance.textColor,
                 BlendMode.srcIn,
               ),
             ),
@@ -1349,10 +1566,13 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
               _navigationAreaHeight -
               _navigationTopSpacing;
           final Size layoutSize = Size(textWidth, pagedTextHeight);
-          final TextStyle textStyle = TextStyle(
-            fontSize: _fontSize,
-            height: 1.55,
-            color: appearance.textColor,
+          final TextStyle textStyle = _readerFontTextStyle(
+            family: _fontFamily,
+            baseStyle: TextStyle(
+              fontSize: _fontSize,
+              height: 1.55,
+              color: appearance.textColor,
+            ),
           );
 
           if (_needsRepagination || _lastLayoutSize != layoutSize) {
@@ -1511,100 +1731,462 @@ class _TranslationSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[appearance.pageColor, appearance.chromeColor],
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[appearance.pageColor, appearance.chromeColor],
+          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
         ),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: appearance.borderColor,
-                    borderRadius: BorderRadius.circular(4),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: appearance.borderColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Перевод слова',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(color: appearance.textColor),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: appearance.scaffoldColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: appearance.borderColor),
-                ),
-                child: Text(
-                  sourceText,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: appearance.textColor,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              FutureBuilder<String>(
-                future: translationFuture,
-                builder:
-                    (BuildContext context, AsyncSnapshot<String> snapshot) {
-                      if (snapshot.connectionState != ConnectionState.done) {
-                        return Row(
-                          children: <Widget>[
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: appearance.accentColor,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              'Перевожу...',
-                              style: Theme.of(context).textTheme.bodyLarge
-                                  ?.copyWith(color: appearance.textColor),
-                            ),
-                          ],
-                        );
-                      }
-
-                      return Text(
-                        snapshot.data ?? 'Не удалось выполнить перевод.',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        'Перевод слова',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: appearance.textColor,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      tooltip: 'Закрыть',
+                      icon: Icon(Icons.close, color: appearance.textColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: appearance.scaffoldColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: appearance.borderColor),
+                  ),
+                  child: Text(
+                    sourceText,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: appearance.textColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FutureBuilder<String>(
+                  future: translationFuture,
+                  builder:
+                      (BuildContext context, AsyncSnapshot<String> snapshot) {
+                        if (snapshot.connectionState != ConnectionState.done) {
+                          return Row(
+                            children: <Widget>[
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: appearance.accentColor,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Перевожу...',
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(color: appearance.textColor),
+                              ),
+                            ],
+                          );
+                        }
+
+                        return Text(
+                          snapshot.data ?? 'Не удалось выполнить перевод.',
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: appearance.textColor),
+                        );
+                      },
+                ),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(
+                    'Закрыть',
+                    style: TextStyle(color: appearance.accentColor),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReaderTocSheet extends StatelessWidget {
+  const _ReaderTocSheet({
+    required this.entries,
+    required this.appearance,
+    required this.currentPage,
+    required this.pageForOffset,
+  });
+
+  final List<FormattedBookTocEntry> entries;
+  final _ReaderAppearance appearance;
+  final int currentPage;
+  final int Function(int textOffset) pageForOffset;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: appearance.pageColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: appearance.borderColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'Оглавление',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(
+                                  color: appearance.textColor,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Переходите к найденным заголовкам прямо из обработанной структуры книги.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: appearance.textColor.withValues(
+                                    alpha: 0.72,
+                                  ),
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      tooltip: 'Закрыть',
+                      icon: Icon(Icons.close, color: appearance.textColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.58,
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: entries.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (BuildContext context, int index) {
+                      final FormattedBookTocEntry entry = entries[index];
+                      final int page = pageForOffset(entry.textOffset);
+                      final bool isActive = page == currentPage;
+
+                      return InkWell(
+                        onTap: () => Navigator.of(context).pop(entry),
+                        borderRadius: BorderRadius.circular(18),
+                        child: Ink(
+                          padding: EdgeInsets.fromLTRB(
+                            16 + ((entry.level - 1) * 14.0),
+                            14,
+                            16,
+                            14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? appearance.chromeColor
+                                : appearance.scaffoldColor.withValues(
+                                    alpha: 0.7,
+                                  ),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: isActive
+                                  ? appearance.accentColor
+                                  : appearance.borderColor,
+                              width: isActive ? 1.6 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(
+                                  entry.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyLarge
+                                      ?.copyWith(
+                                        color: appearance.textColor,
+                                        fontWeight: entry.level <= 2
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                      ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                '${page + 1}',
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: isActive
+                                          ? appearance.accentColor
+                                          : appearance.textColor.withValues(
+                                              alpha: 0.7,
+                                            ),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(
-                  'Закрыть',
-                  style: TextStyle(color: appearance.accentColor),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReaderFontSheet extends StatelessWidget {
+  const _ReaderFontSheet({
+    required this.selectedFamily,
+    required this.appearance,
+  });
+
+  final ReaderFontFamily selectedFamily;
+  final _ReaderAppearance appearance;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: appearance.pageColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: appearance.borderColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              'Шрифт книги',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(
+                                    color: appearance.textColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Подберите книжный рисунок текста: от нейтрального системного до антиквы в духе Kazimir.',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(
+                                    color: appearance.textColor.withValues(
+                                      alpha: 0.72,
+                                    ),
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        tooltip: 'Закрыть',
+                        icon: Icon(Icons.close, color: appearance.textColor),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  ...ReaderFontFamily.values.map((ReaderFontFamily family) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _ReaderFontCard(
+                        family: family,
+                        appearance: appearance,
+                        isSelected: family == selectedFamily,
+                        onTap: () => Navigator.of(context).pop(family),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReaderFontCard extends StatelessWidget {
+  const _ReaderFontCard({
+    required this.family,
+    required this.appearance,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final ReaderFontFamily family;
+  final _ReaderAppearance appearance;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextStyle previewStyle = _readerFontTextStyle(
+      family: family,
+      baseStyle: TextStyle(
+        color: appearance.textColor,
+        fontSize: 22,
+        height: 1.35,
+      ),
+    );
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Ink(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: appearance.chromeColor,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isSelected ? appearance.accentColor : appearance.borderColor,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    _readerFontLabel(family),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: appearance.textColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _readerFontDescription(family),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: appearance.textColor.withValues(alpha: 0.72),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                    decoration: BoxDecoration(
+                      color: appearance.pageColor,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: appearance.borderColor),
+                    ),
+                    child: Text(
+                      _readerFontPreview(family),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: previewStyle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Icon(
+                isSelected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
+                color: isSelected
+                    ? appearance.accentColor
+                    : appearance.borderColor,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1622,127 +2204,154 @@ class _ReaderLayoutModeSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: appearance.pageColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: appearance.borderColor,
-                    borderRadius: BorderRadius.circular(4),
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: appearance.pageColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: appearance.borderColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Режим чтения',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: appearance.textColor,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Можно листать страницы горизонтально или читать книгу вертикальным скроллом.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: appearance.textColor.withValues(alpha: 0.72),
-                ),
-              ),
-              const SizedBox(height: 18),
-              ...ReaderLayoutMode.values.map((ReaderLayoutMode mode) {
-                final bool isSelected = mode == selectedMode;
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: InkWell(
-                    onTap: () => Navigator.of(context).pop(mode),
-                    borderRadius: BorderRadius.circular(18),
-                    child: Ink(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: appearance.chromeColor,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(
-                          color: isSelected
-                              ? appearance.accentColor
-                              : appearance.borderColor,
-                          width: isSelected ? 2 : 1,
-                        ),
-                      ),
-                      child: Row(
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          Container(
-                            width: 44,
-                            height: 44,
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: appearance.pageColor,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: appearance.borderColor),
-                            ),
-                            child: SvgPicture.asset(
-                              _layoutModeIcon(mode),
-                              colorFilter: ColorFilter.mode(
-                                appearance.textColor,
-                                BlendMode.srcIn,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: <Widget>[
-                                Text(
-                                  mode.label,
-                                  style: Theme.of(context).textTheme.titleMedium
-                                      ?.copyWith(
-                                        color: appearance.textColor,
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                          Text(
+                            'Режим чтения',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(
+                                  color: appearance.textColor,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _layoutModeDescription(mode),
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: appearance.textColor.withValues(
-                                          alpha: 0.72,
-                                        ),
-                                      ),
-                                ),
-                              ],
-                            ),
                           ),
-                          const SizedBox(width: 12),
-                          Icon(
-                            isSelected
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_off,
-                            color: isSelected
-                                ? appearance.accentColor
-                                : appearance.borderColor,
+                          const SizedBox(height: 8),
+                          Text(
+                            'Можно листать страницы горизонтально или читать книгу вертикальным скроллом.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: appearance.textColor.withValues(
+                                    alpha: 0.72,
+                                  ),
+                                ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                );
-              }),
-            ],
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      tooltip: 'Закрыть',
+                      icon: Icon(Icons.close, color: appearance.textColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                ...ReaderLayoutMode.values.map((ReaderLayoutMode mode) {
+                  final bool isSelected = mode == selectedMode;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: InkWell(
+                      onTap: () => Navigator.of(context).pop(mode),
+                      borderRadius: BorderRadius.circular(18),
+                      child: Ink(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: appearance.chromeColor,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: isSelected
+                                ? appearance.accentColor
+                                : appearance.borderColor,
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            Container(
+                              width: 44,
+                              height: 44,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: appearance.pageColor,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: appearance.borderColor,
+                                ),
+                              ),
+                              child: SvgPicture.asset(
+                                _layoutModeIcon(mode),
+                                colorFilter: ColorFilter.mode(
+                                  appearance.textColor,
+                                  BlendMode.srcIn,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Text(
+                                    mode.label,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          color: appearance.textColor,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _layoutModeDescription(mode),
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: appearance.textColor
+                                              .withValues(alpha: 0.72),
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Icon(
+                              isSelected
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_off,
+                              color: isSelected
+                                  ? appearance.accentColor
+                                  : appearance.borderColor,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
           ),
         ),
       ),
@@ -1763,60 +2372,87 @@ class _ReaderAppearanceSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final _ReaderAppearance activeAppearance = _appearanceFor(selectedPreset);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: activeAppearance.pageColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: activeAppearance.borderColor,
-                      borderRadius: BorderRadius.circular(4),
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: activeAppearance.pageColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: activeAppearance.borderColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Оформление чтения',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: activeAppearance.textColor,
-                    fontWeight: FontWeight.w700,
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              'Оформление чтения',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(
+                                    color: activeAppearance.textColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Выберите фон и контраст текста прямо для читалки.',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(
+                                    color: activeAppearance.textColor
+                                        .withValues(alpha: 0.72),
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        tooltip: 'Закрыть',
+                        icon: Icon(
+                          Icons.close,
+                          color: activeAppearance.textColor,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Выберите фон и контраст текста прямо для читалки.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: activeAppearance.textColor.withValues(alpha: 0.72),
+                  const SizedBox(height: 18),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: options
+                        .map((option) {
+                          return _ReaderAppearanceCard(
+                            appearance: option,
+                            isSelected: option.preset == selectedPreset,
+                            onTap: () =>
+                                Navigator.of(context).pop(option.preset),
+                          );
+                        })
+                        .toList(growable: false),
                   ),
-                ),
-                const SizedBox(height: 18),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: options
-                      .map((option) {
-                        return _ReaderAppearanceCard(
-                          appearance: option,
-                          isSelected: option.preset == selectedPreset,
-                          onTap: () => Navigator.of(context).pop(option.preset),
-                        );
-                      })
-                      .toList(growable: false),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1957,6 +2593,93 @@ String _layoutModeDescription(ReaderLayoutMode mode) {
       return 'Классическое перелистывание страниц по горизонтали.';
     case ReaderLayoutMode.scrollVertical:
       return 'Непрерывное чтение с вертикальной прокруткой вниз.';
+  }
+}
+
+String _readerFontLabel(ReaderFontFamily family) {
+  switch (family) {
+    case ReaderFontFamily.system:
+      return 'Системный';
+    case ReaderFontFamily.literata:
+      return 'Literata';
+    case ReaderFontFamily.merriweather:
+      return 'Merriweather';
+    case ReaderFontFamily.lora:
+      return 'Lora';
+    case ReaderFontFamily.ptSerif:
+      return 'PT Serif';
+    case ReaderFontFamily.notoSerif:
+      return 'Noto Serif';
+    case ReaderFontFamily.cormorantGaramond:
+      return 'Cormorant Garamond';
+    case ReaderFontFamily.playfairDisplay:
+      return 'Playfair Display';
+  }
+}
+
+String _readerFontDescription(ReaderFontFamily family) {
+  switch (family) {
+    case ReaderFontFamily.system:
+      return 'Текущий системный шрифт без дополнительных загрузок.';
+    case ReaderFontFamily.literata:
+      return 'Современная книжная антиква для длинных глав.';
+    case ReaderFontFamily.merriweather:
+      return 'Более плотный и уверенный рисунок для спокойного чтения.';
+    case ReaderFontFamily.lora:
+      return 'Мягкий редакционный serif с живыми курсивными формами.';
+    case ReaderFontFamily.ptSerif:
+      return 'Классический PT Serif с хорошей поддержкой кириллицы.';
+    case ReaderFontFamily.notoSerif:
+      return 'Нейтральный Noto Serif с ровной читаемостью.';
+    case ReaderFontFamily.cormorantGaramond:
+      return 'Выразительный гарнитур в духе книжного набора и Kazimir.';
+    case ReaderFontFamily.playfairDisplay:
+      return 'Контрастный serif для более характерной страницы.';
+  }
+}
+
+String _readerFontPreview(ReaderFontFamily family) {
+  switch (family) {
+    case ReaderFontFamily.system:
+      return 'Quiet rooms keep stories alive.';
+    case ReaderFontFamily.literata:
+      return 'Quiet rooms keep stories alive.';
+    case ReaderFontFamily.merriweather:
+      return 'Quiet rooms keep stories alive.';
+    case ReaderFontFamily.lora:
+      return 'Quiet rooms keep stories alive.';
+    case ReaderFontFamily.ptSerif:
+      return 'Тихая комната хранит историю.';
+    case ReaderFontFamily.notoSerif:
+      return 'Тихая комната хранит историю.';
+    case ReaderFontFamily.cormorantGaramond:
+      return 'Quiet rooms keep stories alive.';
+    case ReaderFontFamily.playfairDisplay:
+      return 'Quiet rooms keep stories alive.';
+  }
+}
+
+TextStyle _readerFontTextStyle({
+  required ReaderFontFamily family,
+  required TextStyle baseStyle,
+}) {
+  switch (family) {
+    case ReaderFontFamily.system:
+      return baseStyle;
+    case ReaderFontFamily.literata:
+      return GoogleFonts.literata(textStyle: baseStyle);
+    case ReaderFontFamily.merriweather:
+      return GoogleFonts.merriweather(textStyle: baseStyle);
+    case ReaderFontFamily.lora:
+      return GoogleFonts.lora(textStyle: baseStyle);
+    case ReaderFontFamily.ptSerif:
+      return GoogleFonts.ptSerif(textStyle: baseStyle);
+    case ReaderFontFamily.notoSerif:
+      return GoogleFonts.notoSerif(textStyle: baseStyle);
+    case ReaderFontFamily.cormorantGaramond:
+      return GoogleFonts.cormorantGaramond(textStyle: baseStyle);
+    case ReaderFontFamily.playfairDisplay:
+      return GoogleFonts.playfairDisplay(textStyle: baseStyle);
   }
 }
 

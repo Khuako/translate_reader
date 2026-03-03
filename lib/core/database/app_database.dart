@@ -22,6 +22,7 @@ class RecentBooks extends Table {
   TextColumn get format => text()();
   IntColumn get currentPage => integer().withDefault(const Constant(0))();
   RealColumn get fontSize => real().withDefault(const Constant(22))();
+  TextColumn get fontFamily => text().withDefault(const Constant('system'))();
   TextColumn get appearancePreset =>
       text().withDefault(const Constant('paper'))();
   TextColumn get layoutMode =>
@@ -45,7 +46,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -55,6 +56,9 @@ class AppDatabase extends _$AppDatabase {
     onUpgrade: (Migrator m, int from, int to) async {
       if (from < 2) {
         await m.createTable(recentBooks);
+      }
+      if (from >= 2 && from < 3) {
+        await m.addColumn(recentBooks, recentBooks.fontFamily);
       }
     },
   );
@@ -110,6 +114,7 @@ class AppDatabase extends _$AppDatabase {
     required String format,
     required int currentPage,
     required double fontSize,
+    required String fontFamily,
     required String appearancePreset,
     required String layoutMode,
   }) {
@@ -120,6 +125,7 @@ class AppDatabase extends _$AppDatabase {
         format: Value(format),
         currentPage: Value(currentPage),
         fontSize: Value(fontSize),
+        fontFamily: Value(fontFamily),
         appearancePreset: Value(appearancePreset),
         layoutMode: Value(layoutMode),
         lastOpenedAt: Value(DateTime.now()),

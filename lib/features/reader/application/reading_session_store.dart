@@ -29,11 +29,14 @@ class ReadingSessionStore {
     int initialPage = 0,
     double defaultFontSize = 22,
     double? initialFontSize,
+    ReaderFontFamily? initialFontFamily,
     ReaderAppearancePreset? initialAppearancePreset,
     ReaderLayoutMode? initialLayoutMode,
   }) {
     final double savedFontSize =
         initialFontSize ?? _session?.fontSize ?? defaultFontSize;
+    final ReaderFontFamily savedFontFamily =
+        initialFontFamily ?? _session?.fontFamily ?? ReaderFontFamily.system;
     final ReaderAppearancePreset savedAppearancePreset =
         initialAppearancePreset ??
         _session?.appearancePreset ??
@@ -46,6 +49,7 @@ class ReadingSessionStore {
       book: book,
       currentPage: initialPage,
       fontSize: savedFontSize,
+      fontFamily: savedFontFamily,
       appearancePreset: savedAppearancePreset,
       layoutMode: savedLayoutMode,
     );
@@ -70,6 +74,16 @@ class ReadingSessionStore {
     }
 
     _session = current.copyWith(fontSize: fontSize);
+    _persistSession();
+  }
+
+  void updateFontFamily(ReaderFontFamily fontFamily) {
+    final ReadingSession? current = _session;
+    if (current == null || current.fontFamily == fontFamily) {
+      return;
+    }
+
+    _session = current.copyWith(fontFamily: fontFamily);
     _persistSession();
   }
 
@@ -125,6 +139,7 @@ class ReadingSessionStore {
       book: result.book!,
       initialPage: recentBook.currentPage,
       initialFontSize: recentBook.fontSize,
+      initialFontFamily: parseReaderFontFamily(recentBook.fontFamily),
       initialAppearancePreset: parseReaderAppearancePreset(
         recentBook.appearancePreset,
       ),
@@ -166,6 +181,7 @@ class ReadingSessionStore {
       format: current.book.format.extension,
       currentPage: current.currentPage,
       fontSize: current.fontSize,
+      fontFamily: current.fontFamily.name,
       appearancePreset: current.appearancePreset.name,
       layoutMode: current.layoutMode.name,
     );
