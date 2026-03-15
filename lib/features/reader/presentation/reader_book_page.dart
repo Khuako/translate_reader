@@ -11,6 +11,7 @@ import 'package:translate_reader/features/reader/domain/book_text_formatter.dart
 import 'package:translate_reader/features/reader/domain/models/book_content.dart';
 import 'package:translate_reader/features/reader/domain/models/reading_session.dart';
 import 'package:translate_reader/features/translation/application/translator_service.dart';
+import 'package:translate_reader/features/translation/application/tts_service.dart';
 import 'package:translate_reader/features/translation/application/vocabulary_service.dart';
 
 class ReaderBookPage extends StatefulWidget {
@@ -39,6 +40,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
 
   final TranslatorService _translatorService = TranslatorService();
   final VocabularyService _vocabularyService = VocabularyService.instance;
+  final TtsService _ttsService = TtsService.instance;
   final BookTextFormatter _formatter = BookTextFormatter();
   final BookPaginator _paginator = BookPaginator();
 
@@ -345,10 +347,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   }) {
     if (inlineSpans.isEmpty) {
       children.add(
-        TextSpan(
-          text: text.substring(rangeStart, rangeEnd),
-          style: baseStyle,
-        ),
+        TextSpan(text: text.substring(rangeStart, rangeEnd), style: baseStyle),
       );
       return;
     }
@@ -362,7 +361,9 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         continue;
       }
 
-      final int effectiveStart = spanStart < rangeStart ? rangeStart : spanStart;
+      final int effectiveStart = spanStart < rangeStart
+          ? rangeStart
+          : spanStart;
       final int effectiveEnd = spanEnd > rangeEnd ? rangeEnd : spanEnd;
 
       if (cursor < effectiveStart) {
@@ -385,10 +386,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
 
     if (cursor < rangeEnd) {
       children.add(
-        TextSpan(
-          text: text.substring(cursor, rangeEnd),
-          style: baseStyle,
-        ),
+        TextSpan(text: text.substring(cursor, rangeEnd), style: baseStyle),
       );
     }
   }
@@ -412,10 +410,10 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         final double scaleFactor = block.level <= 1
             ? 1.5
             : block.level == 2
-                ? 1.25
-                : block.level == 3
-                    ? 1.1
-                    : 1.0;
+            ? 1.25
+            : block.level == 3
+            ? 1.1
+            : 1.0;
         return _readerFontTextStyle(
           family: _fontFamily,
           baseStyle: textStyle.copyWith(
@@ -1044,6 +1042,22 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                         ),
                       ),
                     ),
+                    if (!state.isLoading && state.translation != null)
+                      GestureDetector(
+                        onTap: () => _ttsService.speak(state.word),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: SvgPicture.asset(
+                            'assets/icons/listen.svg',
+                            width: 20,
+                            height: 20,
+                            colorFilter: ColorFilter.mode(
+                              appearance.textColor.withValues(alpha: 0.6),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        ),
+                      ),
                     if (!state.isLoading && state.translation != null)
                       GestureDetector(
                         onTap: () => _toggleVocabularyWord(state),
@@ -1861,6 +1875,7 @@ class _TranslationSheet extends StatefulWidget {
 
 class _TranslationSheetState extends State<_TranslationSheet> {
   final VocabularyService _vocabularyService = VocabularyService.instance;
+  final TtsService _ttsService = TtsService.instance;
   bool _isSaved = false;
   String? _resolvedTranslation;
 
@@ -1871,7 +1886,9 @@ class _TranslationSheetState extends State<_TranslationSheet> {
   }
 
   Future<void> _checkSavedState() async {
-    final bool saved = await _vocabularyService.isPhraseSaved(widget.sourceText);
+    final bool saved = await _vocabularyService.isPhraseSaved(
+      widget.sourceText,
+    );
     if (mounted) {
       setState(() {
         _isSaved = saved;
@@ -2022,6 +2039,22 @@ class _TranslationSheetState extends State<_TranslationSheet> {
                       ),
                     ),
                     const Spacer(),
+                    if (_resolvedTranslation != null)
+                      GestureDetector(
+                        onTap: () => _ttsService.speak(widget.sourceText),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: SvgPicture.asset(
+                            'assets/icons/listen.svg',
+                            width: 20,
+                            height: 20,
+                            colorFilter: ColorFilter.mode(
+                              appearance.textColor.withValues(alpha: 0.6),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        ),
+                      ),
                     if (_resolvedTranslation != null)
                       GestureDetector(
                         onTap: _toggleSave,

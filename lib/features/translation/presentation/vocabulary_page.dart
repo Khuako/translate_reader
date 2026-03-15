@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:translate_reader/core/database/app_database.dart';
+import 'package:translate_reader/features/translation/application/tts_service.dart';
 import 'package:translate_reader/features/translation/application/vocabulary_service.dart';
 
 /// Русские названия месяцев (сокращённые — первые 3 буквы).
@@ -397,7 +398,8 @@ class _VocabularyPageState extends State<VocabularyPage> {
                 context,
                 icon: Icons.collections_bookmark_outlined,
                 title: 'Словарик пуст',
-                subtitle: 'Нажимайте на слова при чтении книги и сохраняйте их для запоминания.',
+                subtitle:
+                    'Нажимайте на слова при чтении книги и сохраняйте их для запоминания.',
               );
             }
 
@@ -435,6 +437,8 @@ class _VocabularyPageState extends State<VocabularyPage> {
                       return _VocabularyCard(
                         entry: wordItem.entry,
                         isHighlighted: index == _highlightedIndex,
+                        onSpeak: () =>
+                            TtsService.instance.speak(wordItem.entry.word),
                         onDelete: () => _deleteWord(wordItem.entry),
                       );
                     },
@@ -455,10 +459,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
     return StreamBuilder<List<SavedPhrase>>(
       stream: _vocabularyService.watchAllPhrases(),
       builder:
-          (
-            BuildContext context,
-            AsyncSnapshot<List<SavedPhrase>> snapshot,
-          ) {
+          (BuildContext context, AsyncSnapshot<List<SavedPhrase>> snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
               return Center(
@@ -473,7 +474,8 @@ class _VocabularyPageState extends State<VocabularyPage> {
                 context,
                 icon: Icons.format_quote_outlined,
                 title: 'Фраз пока нет',
-                subtitle: 'Выделяйте текст при чтении, переводите и сохраняйте фразы.',
+                subtitle:
+                    'Выделяйте текст при чтении, переводите и сохраняйте фразы.',
               );
             }
 
@@ -484,6 +486,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
                 final SavedPhrase phrase = phrases[index];
                 return _PhraseCard(
                   phrase: phrase,
+                  onSpeak: () => TtsService.instance.speak(phrase.phrase),
                   onDelete: () => _deletePhrase(phrase),
                 );
               },
@@ -514,11 +517,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
                 color: colorScheme.primaryContainer.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(22),
               ),
-              child: Icon(
-                icon,
-                size: 36,
-                color: colorScheme.primary,
-              ),
+              child: Icon(icon, size: 36, color: colorScheme.primary),
             ),
             const SizedBox(height: 20),
             Text(
@@ -708,10 +707,12 @@ class _PhraseCard extends StatelessWidget {
   const _PhraseCard({
     required this.phrase,
     required this.onDelete,
+    required this.onSpeak,
   });
 
   final SavedPhrase phrase;
   final VoidCallback onDelete;
+  final VoidCallback onSpeak;
 
   @override
   Widget build(BuildContext context) {
@@ -797,6 +798,20 @@ class _PhraseCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 2),
+              IconButton(
+                onPressed: onSpeak,
+                icon: SvgPicture.asset(
+                  'assets/icons/listen.svg',
+                  width: 20,
+                  height: 20,
+                  colorFilter: ColorFilter.mode(
+                    colorScheme.secondary.withValues(alpha: 0.6),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                tooltip: 'Озвучить',
+                visualDensity: VisualDensity.compact,
+              ),
               IconButton(
                 onPressed: onDelete,
                 icon: SvgPicture.asset(
@@ -1053,11 +1068,13 @@ class _VocabularyCard extends StatelessWidget {
   const _VocabularyCard({
     required this.entry,
     required this.onDelete,
+    required this.onSpeak,
     this.isHighlighted = false,
   });
 
   final VocabularyEntry entry;
   final VoidCallback onDelete;
+  final VoidCallback onSpeak;
   final bool isHighlighted;
 
   @override
@@ -1147,6 +1164,20 @@ class _VocabularyCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 2),
+              IconButton(
+                onPressed: onSpeak,
+                icon: SvgPicture.asset(
+                  'assets/icons/listen.svg',
+                  width: 20,
+                  height: 20,
+                  colorFilter: ColorFilter.mode(
+                    colorScheme.secondary.withValues(alpha: 0.6),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                tooltip: 'Озвучить',
+                visualDensity: VisualDensity.compact,
+              ),
               IconButton(
                 onPressed: onDelete,
                 icon: SvgPicture.asset(
