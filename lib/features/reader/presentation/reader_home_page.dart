@@ -6,6 +6,7 @@ import 'package:translate_reader/features/reader/application/reading_session_sto
 import 'package:translate_reader/features/reader/domain/models/book_content.dart';
 import 'package:translate_reader/features/reader/domain/models/reading_session.dart';
 import 'package:translate_reader/features/reader/presentation/reader_book_page.dart';
+import 'package:translate_reader/features/reader/presentation/settings_page.dart';
 import 'package:translate_reader/features/translation/presentation/vocabulary_page.dart';
 
 class ReaderHomePage extends StatefulWidget {
@@ -445,10 +446,31 @@ class _HomeHeader extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 12),
         _ThemeSwitcher(
           themeMode: themeMode,
           onThemeModeChanged: onThemeModeChanged,
+        ),
+        const SizedBox(width: 4),
+        IconButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SettingsPage(),
+              ),
+            );
+          },
+          icon: 
+          SvgPicture.asset(
+            'assets/icons/settings.svg',
+            width: 20,
+            height: 20,
+            colorFilter: ColorFilter.mode(
+              colorScheme.onSurfaceVariant,
+              BlendMode.srcIn,
+            ),
+          ),
+          tooltip: 'Настройки',
         ),
       ],
     );

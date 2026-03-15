@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:translate_reader/core/database/app_database.dart';
+import 'package:translate_reader/features/translation/application/tts_service.dart';
 import 'package:translate_reader/features/translation/application/vocabulary_service.dart';
 
 /// Русские названия месяцев (сокращённые — первые 3 буквы).
@@ -62,6 +63,8 @@ String _formatDate(DateTime date) {
   return '$day.$month.${date.year}';
 }
 
+enum _VocabularyTab { words, phrases }
+
 /// Экран словарика сохранённых слов.
 class VocabularyPage extends StatefulWidget {
   const VocabularyPage({super.key});
@@ -75,6 +78,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
+  _VocabularyTab _currentTab = _VocabularyTab.words;
   String? _activeLetter;
   List<_ListItem> _currentItems = const [];
   bool _isScrollingToLetter = false;
@@ -275,7 +279,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
               )
             : const Text('Мой словарик'),
         actions: <Widget>[
-          if (!_isSearching)
+          if (!_isSearching && _currentTab == _VocabularyTab.words)
             StreamBuilder<List<VocabularyEntry>>(
               stream: _vocabularyService.watchAllWords(),
               builder:
@@ -350,78 +354,153 @@ class _VocabularyPageState extends State<VocabularyPage> {
             ),
         ],
       ),
-      body: StreamBuilder<List<VocabularyEntry>>(
-        stream: _vocabularyService.watchAllWords(),
-        builder:
-            (
-              BuildContext context,
-              AsyncSnapshot<List<VocabularyEntry>> snapshot,
-            ) {
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) {
-                return Center(
-                  child: CircularProgressIndicator(color: colorScheme.primary),
-                );
-              }
-
-              final List<VocabularyEntry> words = snapshot.data ?? const [];
-
-              if (words.isEmpty) {
-                return _buildEmptyState(context);
-              }
-
-              // Сортируем по алфавиту для навигации (основной стрим — по дате).
-              final List<VocabularyEntry> sorted = List<VocabularyEntry>.of(
-                words,
-              );
-              sorted.sort(
-                (VocabularyEntry a, VocabularyEntry b) =>
-                    a.word.toLowerCase().compareTo(b.word.toLowerCase()),
-              );
-
-              final Set<String> available = _availableLetters(sorted);
-
-              // Строим плоский список с заголовками секций.
-              final List<_ListItem> items = _buildGroupedItems(sorted);
-              _currentItems = items;
-
-              return Row(
-                children: <Widget>[
-                  Expanded(
-                    child: ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 8, 4, 24),
-                      itemCount: items.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        final _ListItem item = items[index];
-                        if (item is _LetterHeaderItem) {
-                          return _LetterHeader(
-                            letter: item.letter,
-                            color: item.color,
-                          );
-                        }
-                        final _WordItem wordItem = item as _WordItem;
-                        return _VocabularyCard(
-                          entry: wordItem.entry,
-                          isHighlighted: index == _highlightedIndex,
-                          onDelete: () => _deleteWord(wordItem.entry),
-                        );
-                      },
-                    ),
-                  ),
-                  _DockAlphabetBar(
-                    activeLetter: _activeLetter,
-                    availableLetters: available,
-                    onLetterTap: _scrollToLetter,
-                  ),
-                ],
-              );
+      body: Column(
+        children: <Widget>[
+          _VocabularyTabSwitcher(
+            currentTab: _currentTab,
+            onTabChanged: (tab) {
+              if (tab == _currentTab) return;
+              _closeSearch();
+              setState(() {
+                _currentTab = tab;
+              });
             },
+          ),
+          Expanded(
+            child: _currentTab == _VocabularyTab.words
+                ? _buildWordsTab(theme, colorScheme)
+                : _buildPhrasesTab(theme, colorScheme),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildEmptyState(BuildContext context) {
+  Widget _buildWordsTab(ThemeData theme, ColorScheme colorScheme) {
+    return StreamBuilder<List<VocabularyEntry>>(
+      stream: _vocabularyService.watchAllWords(),
+      builder:
+          (
+            BuildContext context,
+            AsyncSnapshot<List<VocabularyEntry>> snapshot,
+          ) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return Center(
+                child: CircularProgressIndicator(color: colorScheme.primary),
+              );
+            }
+
+            final List<VocabularyEntry> words = snapshot.data ?? const [];
+
+            if (words.isEmpty) {
+              return _buildEmptyState(
+                context,
+                icon: Icons.collections_bookmark_outlined,
+                title: 'Словарик пуст',
+                subtitle:
+                    'Нажимайте на слова при чтении книги и сохраняйте их для запоминания.',
+              );
+            }
+
+            // Сортируем по алфавиту для навигации (основной стрим — по дате).
+            final List<VocabularyEntry> sorted = List<VocabularyEntry>.of(
+              words,
+            );
+            sorted.sort(
+              (VocabularyEntry a, VocabularyEntry b) =>
+                  a.word.toLowerCase().compareTo(b.word.toLowerCase()),
+            );
+
+            final Set<String> available = _availableLetters(sorted);
+
+            // Строим плоский список с заголовками секций.
+            final List<_ListItem> items = _buildGroupedItems(sorted);
+            _currentItems = items;
+
+            return Row(
+              children: <Widget>[
+                Expanded(
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 8, 4, 24),
+                    itemCount: items.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final _ListItem item = items[index];
+                      if (item is _LetterHeaderItem) {
+                        return _LetterHeader(
+                          letter: item.letter,
+                          color: item.color,
+                        );
+                      }
+                      final _WordItem wordItem = item as _WordItem;
+                      return _VocabularyCard(
+                        entry: wordItem.entry,
+                        isHighlighted: index == _highlightedIndex,
+                        onSpeak: () =>
+                            TtsService.instance.speak(wordItem.entry.word),
+                        onDelete: () => _deleteWord(wordItem.entry),
+                      );
+                    },
+                  ),
+                ),
+                _DockAlphabetBar(
+                  activeLetter: _activeLetter,
+                  availableLetters: available,
+                  onLetterTap: _scrollToLetter,
+                ),
+              ],
+            );
+          },
+    );
+  }
+
+  Widget _buildPhrasesTab(ThemeData theme, ColorScheme colorScheme) {
+    return StreamBuilder<List<SavedPhrase>>(
+      stream: _vocabularyService.watchAllPhrases(),
+      builder:
+          (BuildContext context, AsyncSnapshot<List<SavedPhrase>> snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return Center(
+                child: CircularProgressIndicator(color: colorScheme.primary),
+              );
+            }
+
+            final List<SavedPhrase> phrases = snapshot.data ?? const [];
+
+            if (phrases.isEmpty) {
+              return _buildEmptyState(
+                context,
+                icon: Icons.format_quote_outlined,
+                title: 'Фраз пока нет',
+                subtitle:
+                    'Выделяйте текст при чтении, переводите и сохраняйте фразы.',
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              itemCount: phrases.length,
+              itemBuilder: (BuildContext context, int index) {
+                final SavedPhrase phrase = phrases[index];
+                return _PhraseCard(
+                  phrase: phrase,
+                  onSpeak: () => TtsService.instance.speak(phrase.phrase),
+                  onDelete: () => _deletePhrase(phrase),
+                );
+              },
+            );
+          },
+    );
+  }
+
+  Widget _buildEmptyState(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme colorScheme = theme.colorScheme;
 
@@ -438,22 +517,18 @@ class _VocabularyPageState extends State<VocabularyPage> {
                 color: colorScheme.primaryContainer.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(22),
               ),
-              child: Icon(
-                Icons.collections_bookmark_outlined,
-                size: 36,
-                color: colorScheme.primary,
-              ),
+              child: Icon(icon, size: 36, color: colorScheme.primary),
             ),
             const SizedBox(height: 20),
             Text(
-              'Словарик пуст',
+              title,
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              'Нажимайте на слова при чтении книги и сохраняйте их для запоминания.',
+              subtitle,
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: colorScheme.onSurfaceVariant,
@@ -505,6 +580,22 @@ class _VocabularyPageState extends State<VocabularyPage> {
       ),
     );
   }
+
+  Future<void> _deletePhrase(SavedPhrase phrase) async {
+    await _vocabularyService.removePhraseById(phrase.id);
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Фраза удалена из словарика'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 }
 
 // Элементы плоского списка.
@@ -522,6 +613,225 @@ class _WordItem extends _ListItem {
   _WordItem({required this.entry});
 
   final VocabularyEntry entry;
+}
+
+/// Переключатель вкладок «Слова» / «Фразы».
+class _VocabularyTabSwitcher extends StatelessWidget {
+  const _VocabularyTabSwitcher({
+    required this.currentTab,
+    required this.onTabChanged,
+  });
+
+  final _VocabularyTab currentTab;
+  final ValueChanged<_VocabularyTab> onTabChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: <Widget>[
+            _buildTab(
+              context,
+              label: 'Слова',
+              tab: _VocabularyTab.words,
+              colorScheme: colorScheme,
+            ),
+            _buildTab(
+              context,
+              label: 'Фразы',
+              tab: _VocabularyTab.phrases,
+              colorScheme: colorScheme,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTab(
+    BuildContext context, {
+    required String label,
+    required _VocabularyTab tab,
+    required ColorScheme colorScheme,
+  }) {
+    final bool isSelected = currentTab == tab;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => onTabChanged(tab),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: isSelected ? colorScheme.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: isSelected
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: colorScheme.primary.withValues(alpha: 0.18),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          alignment: Alignment.center,
+          child: AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 220),
+            style: Theme.of(context).textTheme.labelLarge!.copyWith(
+              color: isSelected
+                  ? colorScheme.onPrimary
+                  : colorScheme.onSurfaceVariant,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            ),
+            child: Text(label),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Карточка сохранённой фразы.
+class _PhraseCard extends StatelessWidget {
+  const _PhraseCard({
+    required this.phrase,
+    required this.onDelete,
+    required this.onSpeak,
+  });
+
+  final SavedPhrase phrase;
+  final VoidCallback onDelete;
+  final VoidCallback onSpeak;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final String dateLabel = _formatDate(phrase.createdAt);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.38),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            phrase.phrase,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            dateLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.7,
+                              ),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer.withValues(
+                          alpha: 0.22,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        phrase.translation,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface.withValues(alpha: 0.85),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 2),
+              IconButton(
+                onPressed: onSpeak,
+                icon: SvgPicture.asset(
+                  'assets/icons/listen.svg',
+                  width: 20,
+                  height: 20,
+                  colorFilter: ColorFilter.mode(
+                    colorScheme.secondary.withValues(alpha: 0.6),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                tooltip: 'Озвучить',
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                onPressed: onDelete,
+                icon: SvgPicture.asset(
+                  'assets/icons/delete.svg',
+                  width: 24,
+                  height: 24,
+                  colorFilter: ColorFilter.mode(
+                    colorScheme.secondary.withValues(alpha: 0.6),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                tooltip: 'Удалить',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // Линейка алфавита с анимацией.
@@ -758,11 +1068,13 @@ class _VocabularyCard extends StatelessWidget {
   const _VocabularyCard({
     required this.entry,
     required this.onDelete,
+    required this.onSpeak,
     this.isHighlighted = false,
   });
 
   final VocabularyEntry entry;
   final VoidCallback onDelete;
+  final VoidCallback onSpeak;
   final bool isHighlighted;
 
   @override
@@ -852,6 +1164,20 @@ class _VocabularyCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 2),
+              IconButton(
+                onPressed: onSpeak,
+                icon: SvgPicture.asset(
+                  'assets/icons/listen.svg',
+                  width: 20,
+                  height: 20,
+                  colorFilter: ColorFilter.mode(
+                    colorScheme.secondary.withValues(alpha: 0.6),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                tooltip: 'Озвучить',
+                visualDensity: VisualDensity.compact,
+              ),
               IconButton(
                 onPressed: onDelete,
                 icon: SvgPicture.asset(
