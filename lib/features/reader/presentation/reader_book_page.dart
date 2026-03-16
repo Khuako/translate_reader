@@ -1042,7 +1042,6 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                         ),
                       ),
                     ),
-                    if (!state.isLoading && state.translation != null)
                       GestureDetector(
                         onTap: () => _ttsService.speak(state.word),
                         child: Padding(
@@ -2039,7 +2038,6 @@ class _TranslationSheetState extends State<_TranslationSheet> {
                       ),
                     ),
                     const Spacer(),
-                    if (_resolvedTranslation != null)
                       GestureDetector(
                         onTap: () => _ttsService.speak(widget.sourceText),
                         child: Padding(
