@@ -440,6 +440,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
                         onSpeak: () =>
                             TtsService.instance.speak(wordItem.entry.word),
                         onDelete: () => _deleteWord(wordItem.entry),
+                        onEdit: () => _editWordTranslation(wordItem.entry),
                       );
                     },
                   ),
@@ -488,6 +489,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
                   phrase: phrase,
                   onSpeak: () => TtsService.instance.speak(phrase.phrase),
                   onDelete: () => _deletePhrase(phrase),
+                  onEdit: () => _editPhraseTranslation(phrase),
                 );
               },
             );
@@ -595,6 +597,24 @@ class _VocabularyPageState extends State<VocabularyPage> {
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  Future<void> _editWordTranslation(VocabularyEntry entry) async {
+    final String? newTranslation = await _showEditTranslationDialog(
+      context,
+      currentTranslation: entry.translation,
+    );
+    if (newTranslation == null || newTranslation == entry.translation) return;
+    await _vocabularyService.updateWordTranslation(entry.id, newTranslation);
+  }
+
+  Future<void> _editPhraseTranslation(SavedPhrase phrase) async {
+    final String? newTranslation = await _showEditTranslationDialog(
+      context,
+      currentTranslation: phrase.translation,
+    );
+    if (newTranslation == null || newTranslation == phrase.translation) return;
+    await _vocabularyService.updatePhraseTranslation(phrase.id, newTranslation);
   }
 }
 
@@ -708,11 +728,13 @@ class _PhraseCard extends StatelessWidget {
     required this.phrase,
     required this.onDelete,
     required this.onSpeak,
+    required this.onEdit,
   });
 
   final SavedPhrase phrase;
   final VoidCallback onDelete;
   final VoidCallback onSpeak;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -1069,12 +1091,14 @@ class _VocabularyCard extends StatelessWidget {
     required this.entry,
     required this.onDelete,
     required this.onSpeak,
+    required this.onEdit,
     this.isHighlighted = false,
   });
 
   final VocabularyEntry entry;
   final VoidCallback onDelete;
   final VoidCallback onSpeak;
+  final VoidCallback onEdit;
   final bool isHighlighted;
 
   @override
@@ -1164,33 +1188,60 @@ class _VocabularyCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 2),
-              IconButton(
-                onPressed: onSpeak,
-                icon: SvgPicture.asset(
-                  'assets/icons/listen.svg',
-                  width: 20,
-                  height: 20,
-                  colorFilter: ColorFilter.mode(
-                    colorScheme.secondary.withValues(alpha: 0.6),
-                    BlendMode.srcIn,
+
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  SizedBox(
+                    height: 34,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: onSpeak,
+                          icon: SvgPicture.asset(
+                            'assets/icons/listen.svg',
+                            width: 20,
+                            height: 20,
+                            colorFilter: ColorFilter.mode(
+                              colorScheme.secondary.withValues(alpha: 0.6),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                          tooltip: 'Озвучить',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: onDelete,
+                          icon: SvgPicture.asset(
+                            'assets/icons/delete.svg',
+                            width: 20,
+                            height: 20,
+                            colorFilter: ColorFilter.mode(
+                              colorScheme.secondary.withValues(alpha: 0.6),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                          tooltip: 'Удалить',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                tooltip: 'Озвучить',
-                visualDensity: VisualDensity.compact,
-              ),
-              IconButton(
-                onPressed: onDelete,
-                icon: SvgPicture.asset(
-                  'assets/icons/delete.svg',
-                  width: 24,
-                  height: 24,
-                  colorFilter: ColorFilter.mode(
-                    colorScheme.secondary.withValues(alpha: 0.6),
-                    BlendMode.srcIn,
-                  ),
-                ),
-                tooltip: 'Удалить',
-                visualDensity: VisualDensity.compact,
+                  SizedBox(
+                    height: 34,
+                    child: IconButton(
+                    onPressed: onEdit,
+                    icon: Icon(
+                      Icons.edit_outlined,
+                      size: 20,
+                      color: colorScheme.secondary.withValues(alpha: 0.6),
+                    ),
+                    tooltip: 'Редактировать',
+                    visualDensity: VisualDensity.compact,
+                  ),),
+                ],
               ),
             ],
           ),
@@ -1198,4 +1249,52 @@ class _VocabularyCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Диалог редактирования перевода. Возвращает новый текст или null при отмене.
+Future<String?> _showEditTranslationDialog(
+  BuildContext context, {
+  required String currentTranslation,
+}) {
+  final TextEditingController controller = TextEditingController(
+    text: currentTranslation,
+  );
+  final ColorScheme colorScheme = Theme.of(context).colorScheme;
+
+  return showDialog<String>(
+    context: context,
+    builder: (BuildContext dialogContext) {
+      return AlertDialog(
+        title: const Text('Редактировать перевод'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: null,
+          decoration: InputDecoration(
+            hintText: 'Введите перевод',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: colorScheme.primary, width: 2),
+            ),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final String text = controller.text.trim();
+              if (text.isNotEmpty) {
+                Navigator.of(dialogContext).pop(text);
+              }
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      );
+    },
+  );
 }
