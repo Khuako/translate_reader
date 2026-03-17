@@ -710,6 +710,23 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     );
     final int requestId = ++_tapTranslationRequestId;
     final String cacheKey = wordHit.word.toLowerCase();
+
+    // Проверяем словарик — перевод из словарика приоритетнее кэша.
+    String? savedTranslation;
+    bool isSaved = false;
+    try {
+      savedTranslation =
+          await _vocabularyService.getSavedWordTranslation(wordHit.word);
+      isSaved = savedTranslation != null;
+      if (isSaved) {
+        _translationCache[cacheKey] = savedTranslation;
+      }
+    } catch (_) {}
+
+    if (!mounted || requestId != _tapTranslationRequestId) {
+      return;
+    }
+
     final String? cachedTranslation = _translationCache[cacheKey];
 
     setState(() {
@@ -722,17 +739,9 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         maxHeight: overlayMaxHeight,
         translation: cachedTranslation,
         isLoading: cachedTranslation == null,
-        isSavedToVocabulary: false,
+        isSavedToVocabulary: isSaved,
       );
     });
-
-    unawaited(
-      _syncTapTranslationSavedState(
-        requestId: requestId,
-        pageIndex: pageIndex,
-        word: wordHit.word,
-      ),
-    );
 
     if (cachedTranslation != null) {
       return;
@@ -762,36 +771,6 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         translation: translation,
         isLoading: false,
         isSavedToVocabulary: currentState.isSavedToVocabulary,
-      );
-    });
-  }
-
-  Future<void> _syncTapTranslationSavedState({
-    required int requestId,
-    required int pageIndex,
-    required String word,
-  }) async {
-    final bool isSaved;
-    try {
-      isSaved = await _vocabularyService.isWordSaved(word);
-    } catch (_) {
-      return;
-    }
-
-    if (!mounted || requestId != _tapTranslationRequestId) {
-      return;
-    }
-
-    setState(() {
-      final _TapTranslationState? currentState = _tapTranslationState;
-      if (currentState == null ||
-          currentState.pageIndex != pageIndex ||
-          currentState.word != word) {
-        return;
-      }
-
-      _tapTranslationState = currentState.copyWith(
-        isSavedToVocabulary: isSaved,
       );
     });
   }
@@ -1888,6 +1867,17 @@ class _TranslationSheetState extends State<_TranslationSheet> {
     final bool saved = await _vocabularyService.isPhraseSaved(
       widget.sourceText,
     );
+    if (saved) {
+      final String? savedTranslation =
+          await _vocabularyService.getSavedPhraseTranslation(widget.sourceText);
+      if (mounted && savedTranslation != null) {
+        setState(() {
+          _isSaved = true;
+          _resolvedTranslation = savedTranslation;
+        });
+        return;
+      }
+    }
     if (mounted) {
       setState(() {
         _isSaved = saved;
@@ -1987,7 +1977,8 @@ class _TranslationSheetState extends State<_TranslationSheet> {
                   future: widget.translationFuture,
                   builder:
                       (BuildContext context, AsyncSnapshot<String> snapshot) {
-                        if (snapshot.connectionState != ConnectionState.done) {
+                        if (snapshot.connectionState != ConnectionState.done &&
+                            _resolvedTranslation == null) {
                           return Row(
                             children: <Widget>[
                               SizedBox(
@@ -2008,9 +1999,9 @@ class _TranslationSheetState extends State<_TranslationSheet> {
                           );
                         }
 
-                        final String translation =
-                            snapshot.data ?? 'Не удалось выполнить перевод.';
                         if (_resolvedTranslation == null) {
+                          final String translation =
+                              snapshot.data ?? 'Не удалось выполнить перевод.';
                           WidgetsBinding.instance.addPostFrameCallback((_) {
                             if (mounted && _resolvedTranslation == null) {
                               setState(() {
@@ -2020,8 +2011,13 @@ class _TranslationSheetState extends State<_TranslationSheet> {
                           });
                         }
 
+                        final String displayTranslation =
+                            _resolvedTranslation ??
+                            snapshot.data ??
+                            'Не удалось выполнить перевод.';
+
                         return Text(
-                          translation,
+                          displayTranslation,
                           style: Theme.of(context).textTheme.bodyLarge
                               ?.copyWith(color: appearance.textColor),
                         );

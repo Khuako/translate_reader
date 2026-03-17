@@ -86,6 +86,18 @@ class AppDatabase extends _$AppDatabase {
     return (delete(vocabularyEntries)..where((t) => t.id.equals(id))).go();
   }
 
+  /// Обновляет перевод слова по id.
+  Future<int> updateWordTranslation(int id, String newTranslation) {
+    return (update(vocabularyEntries)..where((t) => t.id.equals(id)))
+        .write(VocabularyEntriesCompanion(translation: Value(newTranslation)));
+  }
+
+  /// Обновляет перевод слова по тексту.
+  Future<int> updateWordTranslationByText(String word, String newTranslation) {
+    return (update(vocabularyEntries)..where((t) => t.word.equals(word)))
+        .write(VocabularyEntriesCompanion(translation: Value(newTranslation)));
+  }
+
   /// Удаляет слово из словарика по тексту слова.
   Future<int> removeWordByText(String word) {
     return (delete(vocabularyEntries)..where((t) => t.word.equals(word))).go();
@@ -98,6 +110,14 @@ class AppDatabase extends _$AppDatabase {
       ..limit(1);
     final results = await query.get();
     return results.isNotEmpty;
+  }
+
+  /// Возвращает запись слова по тексту (или null).
+  Future<VocabularyEntry?> getWordByText(String word) {
+    final query = select(vocabularyEntries)
+      ..where((t) => t.word.equals(word))
+      ..limit(1);
+    return query.getSingleOrNull();
   }
 
   /// Возвращает поток всех слов в словарике, отсортированных по дате добавления.
@@ -130,6 +150,18 @@ class AppDatabase extends _$AppDatabase {
     return (delete(savedPhrases)..where((t) => t.id.equals(id))).go();
   }
 
+  /// Обновляет перевод фразы по id.
+  Future<int> updatePhraseTranslation(int id, String newTranslation) {
+    return (update(savedPhrases)..where((t) => t.id.equals(id)))
+        .write(SavedPhrasesCompanion(translation: Value(newTranslation)));
+  }
+
+  /// Обновляет перевод фразы по тексту.
+  Future<int> updatePhraseTranslationByText(String phrase, String newTranslation) {
+    return (update(savedPhrases)..where((t) => t.phrase.equals(phrase)))
+        .write(SavedPhrasesCompanion(translation: Value(newTranslation)));
+  }
+
   /// Удаляет фразу из словарика по тексту.
   Future<int> removePhraseByText(String phrase) {
     return (delete(savedPhrases)..where((t) => t.phrase.equals(phrase))).go();
@@ -142,6 +174,14 @@ class AppDatabase extends _$AppDatabase {
       ..limit(1);
     final results = await query.get();
     return results.isNotEmpty;
+  }
+
+  /// Возвращает запись фразы по тексту (или null).
+  Future<SavedPhrase?> getPhraseByText(String phrase) {
+    final query = select(savedPhrases)
+      ..where((t) => t.phrase.equals(phrase))
+      ..limit(1);
+    return query.getSingleOrNull();
   }
 
   /// Возвращает поток всех фраз, отсортированных по дате добавления.

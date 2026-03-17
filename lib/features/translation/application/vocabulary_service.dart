@@ -42,6 +42,22 @@ class VocabularyService {
     return _db.isWordSaved(word.toLowerCase());
   }
 
+  /// Возвращает сохранённый перевод слова (или null).
+  Future<String?> getSavedWordTranslation(String word) async {
+    final entry = await _db.getWordByText(word.toLowerCase());
+    return entry?.translation;
+  }
+
+  /// Обновляет перевод слова по id.
+  Future<void> updateWordTranslation(int id, String newTranslation) async {
+    await _db.updateWordTranslation(id, newTranslation);
+  }
+
+  /// Обновляет перевод слова по тексту.
+  Future<void> updateWordTranslationByText(String word, String newTranslation) async {
+    await _db.updateWordTranslationByText(word.toLowerCase(), newTranslation);
+  }
+
   /// Поток всех слов из словарика.
   Stream<List<VocabularyEntry>> watchAllWords() {
     return _db.watchAllWords();
@@ -80,6 +96,22 @@ class VocabularyService {
   /// Проверяет, сохранена ли фраза в словарике.
   Future<bool> isPhraseSaved(String phrase) {
     return _db.isPhraseSaved(phrase.toLowerCase());
+  }
+
+  /// Возвращает сохранённый перевод фразы (или null).
+  Future<String?> getSavedPhraseTranslation(String phrase) async {
+    final entry = await _db.getPhraseByText(phrase.toLowerCase());
+    return entry?.translation;
+  }
+
+  /// Обновляет перевод фразы по id.
+  Future<void> updatePhraseTranslation(int id, String newTranslation) async {
+    await _db.updatePhraseTranslation(id, newTranslation);
+  }
+
+  /// Обновляет перевод фразы по тексту.
+  Future<void> updatePhraseTranslationByText(String phrase, String newTranslation) async {
+    await _db.updatePhraseTranslationByText(phrase.toLowerCase(), newTranslation);
   }
 
   /// Поток всех фраз из словарика.
